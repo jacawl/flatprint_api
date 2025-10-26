@@ -165,6 +165,9 @@ async def root():
                 "stock": "/api/v1/movers/stock/{ticker}",
                 "stats": "/api/v1/movers/stats"
             },
+            "indices": {
+                "prices": "/api/v1/prices",
+            },
             "utility": {
                 "dates": "/api/v1/dates",
                 "health": "/health"
@@ -181,6 +184,16 @@ async def health_check():
         "storage": "connected" if storage else "disconnected",
         "timestamp": datetime.now(timezone(timedelta(hours=-5))).isoformat()
     }
+
+@app.get("/api/v1/prices")
+async def get_latest_prices():
+    storage = get_r2_storage()
+    response = storage.s3_client.get_object(
+        Bucket=storage.bucket_name, 
+        Key='prices/latest.json'
+    )
+    data = json.loads(response['Body'].read())
+    return data
 
 
 @app.get("/api/v1/today", response_model=ArticlesResponse)
