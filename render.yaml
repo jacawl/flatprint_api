@@ -12,7 +12,7 @@ services:
         value: 3.11.0
       - key: R2_BUCKET_NAME
         sync: false
-      - key: R2_ACCOUNT_ID
+      - key: R2_ENDPOINT_URL
         sync: false
       - key: R2_ACCESS_KEY_ID
         sync: false
