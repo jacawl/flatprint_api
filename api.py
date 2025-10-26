@@ -144,15 +144,31 @@ async def root():
         "version": "1.0.0",
         "status": "operational",
         "endpoints": {
-            "today": "/api/v1/today",
-            "date": "/api/v1/articles/{date}",
-            "top": "/api/v1/top",
-            "macro": "/api/v1/macro",
-            "equities": "/api/v1/equities",
-            "sector": "/api/v1/sector",
-            "bullish": "/api/v1/bullish",
-            "bearish": "/api/v1/bearish",
-            "recent_dates": "/api/v1/dates"
+            "articles": {
+                "today": "/api/v1/today",
+                "date": "/api/v1/articles/{date}",
+                "top": "/api/v1/top",
+                "macro": "/api/v1/macro",
+                "equities": "/api/v1/equities",
+                "sector": "/api/v1/sector",
+                "bullish": "/api/v1/bullish",
+                "bearish": "/api/v1/bearish",
+                "search": "/api/v1/search",
+                "stats": "/api/v1/stats"
+            },
+            "movers": {
+                "today": "/api/v1/movers/today",
+                "date": "/api/v1/movers/{date}",
+                "gainers": "/api/v1/movers/gainers",
+                "losers": "/api/v1/movers/losers",
+                "industry": "/api/v1/movers/industry/{industry_name}",
+                "stock": "/api/v1/movers/stock/{ticker}",
+                "stats": "/api/v1/movers/stats"
+            },
+            "utility": {
+                "dates": "/api/v1/dates",
+                "health": "/health"
+            }
         }
     }
 
@@ -455,6 +471,266 @@ async def get_statistics():
                 "avg": sum(a.get('sentiment', 0) for a in graded) / len(graded) if graded else 0
             }
         }
+    }
+
+    # ==================== NEW MODELS ====================
+# Add these new models after the existing Article and ArticlesResponse models:
+
+class StockMover(BaseModel):
+    """Stock mover model"""
+    ticker: str
+    change: float
+    news: List[Dict]
+
+
+class IndustryMover(BaseModel):
+    """Industry mover model"""
+    industry: str
+    change: float
+    url: str
+    num_stocks: int
+    stocks: List[StockMover]
+
+
+class MoversResponse(BaseModel):
+    """Movers response model"""
+    date: str
+    timestamp: str
+    run_number: int
+    data_source: str
+    positive_industries_count: int
+    negative_industries_count: int
+    total_news_articles: int
+    positive_industries: Dict[str, IndustryMover]
+    negative_industries: Dict[str, IndustryMover]
+
+
+# Add this helper function after load_articles_for_date():
+
+def load_movers_for_date(target_date: str) -> Optional[Dict]:
+    """Load sector movers for a specific date from R2"""
+    if not storage:
+        raise HTTPException(status_code=503, detail="Storage not available")
+    
+    try:
+        key = f"movers/{target_date}.json"
+        response = storage.s3_client.get_object(
+            Bucket=storage.bucket_name, 
+            Key=key
+        )
+        import json
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        return data
+    except storage.s3_client.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        logger.error(f"Error loading movers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load movers: {str(e)}")
+
+
+# Add these endpoints before if __name__ == "__main__":
+
+@app.get("/api/v1/movers/today")
+async def get_today_movers():
+    """Get today's sector movers (gainers and losers)"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available for today")
+    
+    return {
+        "date": data.get("date"),
+        "timestamp": data.get("timestamp"),
+        "run_number": data.get("run_number"),
+        "data_source": data.get("data_source"),
+        "total_news_articles": data.get("total_news_articles", 0),
+        "positive_industries_count": data.get("positive_industries_count", 0),
+        "negative_industries_count": data.get("negative_industries_count", 0),
+        "positive_industries": data.get("movers", {}).get("Positive Industries", {}),
+        "negative_industries": data.get("movers", {}).get("Negative Industries", {})
+    }
+
+
+@app.get("/api/v1/movers/{target_date}")
+async def get_movers_by_date(target_date: str):
+    """Get sector movers for a specific date (format: YYYY-MM-DD)"""
+    # Validate date format
+    try:
+        datetime.strptime(target_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    data = load_movers_for_date(target_date)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail=f"No movers data found for {target_date}")
+    
+    return {
+        "date": data.get("date"),
+        "timestamp": data.get("timestamp"),
+        "run_number": data.get("run_number"),
+        "data_source": data.get("data_source"),
+        "total_news_articles": data.get("total_news_articles", 0),
+        "positive_industries_count": data.get("positive_industries_count", 0),
+        "negative_industries_count": data.get("negative_industries_count", 0),
+        "positive_industries": data.get("movers", {}).get("Positive Industries", {}),
+        "negative_industries": data.get("movers", {}).get("Negative Industries", {})
+    }
+
+
+@app.get("/api/v1/movers/gainers")
+async def get_top_gainers(
+    limit: int = Query(5, ge=1, le=10, description="Number of top gaining industries")
+):
+    """Get top gaining industries with their top stocks"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available")
+    
+    positive_industries = data.get("movers", {}).get("Positive Industries", {})
+    
+    # Sort by change percentage
+    sorted_industries = sorted(
+        positive_industries.items(),
+        key=lambda x: x[1].get("change", 0),
+        reverse=True
+    )[:limit]
+    
+    return {
+        "date": data.get("date"),
+        "industries": dict(sorted_industries),
+        "count": len(sorted_industries)
+    }
+
+
+@app.get("/api/v1/movers/losers")
+async def get_top_losers(
+    limit: int = Query(5, ge=1, le=10, description="Number of top losing industries")
+):
+    """Get top losing industries with their top stocks"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available")
+    
+    negative_industries = data.get("movers", {}).get("Negative Industries", {})
+    
+    # Sort by change percentage (most negative first)
+    sorted_industries = sorted(
+        negative_industries.items(),
+        key=lambda x: x[1].get("change", 0)
+    )[:limit]
+    
+    return {
+        "date": data.get("date"),
+        "industries": dict(sorted_industries),
+        "count": len(sorted_industries)
+    }
+
+
+@app.get("/api/v1/movers/industry/{industry_name}")
+async def get_industry_details(industry_name: str):
+    """Get detailed information about a specific industry including stocks and news"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available")
+    
+    movers = data.get("movers", {})
+    
+    # Search in both positive and negative industries
+    industry_data = None
+    category = None
+    
+    if industry_name in movers.get("Positive Industries", {}):
+        industry_data = movers["Positive Industries"][industry_name]
+        category = "gainer"
+    elif industry_name in movers.get("Negative Industries", {}):
+        industry_data = movers["Negative Industries"][industry_name]
+        category = "loser"
+    
+    if not industry_data:
+        raise HTTPException(status_code=404, detail=f"Industry '{industry_name}' not found")
+    
+    return {
+        "date": data.get("date"),
+        "industry": industry_name,
+        "category": category,
+        "change": industry_data.get("change"),
+        "url": industry_data.get("url"),
+        "num_stocks": industry_data.get("num_stocks"),
+        "stocks": industry_data.get("stocks", [])
+    }
+
+
+@app.get("/api/v1/movers/stock/{ticker}")
+async def get_stock_news(ticker: str):
+    """Get news for a specific stock ticker from movers data"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available")
+    
+    ticker = ticker.upper()
+    movers = data.get("movers", {})
+    
+    # Search for ticker in all industries
+    for category in ["Positive Industries", "Negative Industries"]:
+        for industry_name, industry_data in movers.get(category, {}).items():
+            for stock in industry_data.get("stocks", []):
+                if stock.get("ticker") == ticker:
+                    return {
+                        "date": data.get("date"),
+                        "ticker": ticker,
+                        "change": stock.get("change"),
+                        "industry": industry_name,
+                        "category": "gainer" if category == "Positive Industries" else "loser",
+                        "news": stock.get("news", []),
+                        "news_count": len(stock.get("news", []))
+                    }
+    
+    raise HTTPException(status_code=404, detail=f"Ticker '{ticker}' not found in movers data")
+
+
+@app.get("/api/v1/movers/stats")
+async def get_movers_stats():
+    """Get statistics about today's movers"""
+    today = get_date_est().isoformat()
+    data = load_movers_for_date(today)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="No movers data available")
+    
+    movers = data.get("movers", {})
+    positive = movers.get("Positive Industries", {})
+    negative = movers.get("Negative Industries", {})
+    
+    # Calculate stats
+    total_stocks = 0
+    total_news = 0
+    
+    for industry_data in list(positive.values()) + list(negative.values()):
+        stocks = industry_data.get("stocks", [])
+        total_stocks += len(stocks)
+        for stock in stocks:
+            total_news += len(stock.get("news", []))
+    
+    return {
+        "date": data.get("date"),
+        "timestamp": data.get("timestamp"),
+        "run_number": data.get("run_number"),
+        "positive_industries": len(positive),
+        "negative_industries": len(negative),
+        "total_industries": len(positive) + len(negative),
+        "total_stocks_tracked": total_stocks,
+        "total_news_articles": total_news,
+        "data_source": data.get("data_source")
     }
 
 
