@@ -169,32 +169,26 @@ async def health_check():
 
 @app.get("/api/v1/today", response_model=ArticlesResponse)
 async def get_today_articles(
-    limit: int = Query(50, ge=1, le=500, description="Number of articles to return"),
-    min_score: float = Query(0.0, ge=0.0, le=10.0, description="Minimum overall score"),
-    source: Optional[str] = Query(None, description="Filter by source (e.g., 'bloomberg', 'reuters')")
+    min_score: float = Query(0.0, ge=0.0, le=10.0),
+    source: Optional[str] = Query(None)
 ):
-    """Get today's articles"""
+    """Get ALL articles for today"""
     today = get_date_est().isoformat()
     data = load_articles_for_date(today)
     
     if not data:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"No articles found for today ({today}). Check back during market hours (9am, 12pm, or 4pm EST)."
-        )
+        raise HTTPException(status_code=404, detail="No articles available")
     
-    # Filter and limit
     articles = filter_articles(
         data['articles'],
         min_score=min_score,
         source=source
-    )[:limit]
+    )
     
     data['articles'] = articles
     data['total_articles'] = len(articles)
     
     return data
-
 
 @app.get("/api/v1/articles/{target_date}", response_model=ArticlesResponse)
 async def get_articles_by_date(
