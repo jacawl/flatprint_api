@@ -2,7 +2,7 @@ services:
   - type: web
     name: flatprint-api
     env: python
-    runtime: python-3.11.7  # Changed from just "python"
+    runtime: python-3.11.7
     region: oregon
     plan: free
     branch: main
