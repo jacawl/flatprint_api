@@ -187,13 +187,22 @@ async def health_check():
 
 @app.get("/api/v1/prices")
 async def get_latest_prices():
-    storage = get_r2_storage()
-    response = storage.s3_client.get_object(
-        Bucket=storage.bucket_name, 
-        Key='prices/latest.json'
-    )
-    data = json.loads(response['Body'].read())
-    return data
+    if not storage:
+        raise HTTPException(status_code=503, detail="Storage not available")
+    
+    try:
+        response = storage.s3_client.get_object(
+            Bucket=storage.bucket_name, 
+            Key='prices/latest.json'
+        )
+        import json
+        data = json.loads(response['Body'].read())
+        return data
+    except storage.s3_client.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail="Price data not found")
+    except Exception as e:
+        logger.error(f"Error loading prices: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load prices: {str(e)}")
 
 
 @app.get("/api/v1/today", response_model=ArticlesResponse)
