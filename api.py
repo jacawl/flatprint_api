@@ -573,34 +573,6 @@ async def get_today_movers():
         "negative_industries": data.get("movers", {}).get("Negative Industries", {})
     }
 
-
-@app.get("/api/v1/movers/{target_date}")
-async def get_movers_by_date(target_date: str):
-    """Get sector movers for a specific date (format: YYYY-MM-DD)"""
-    # Validate date format
-    try:
-        datetime.strptime(target_date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    
-    data = load_movers_for_date(target_date)
-    
-    if not data:
-        raise HTTPException(status_code=404, detail=f"No movers data found for {target_date}")
-    
-    return {
-        "date": data.get("date"),
-        "timestamp": data.get("timestamp"),
-        "run_number": data.get("run_number"),
-        "data_source": data.get("data_source"),
-        "total_news_articles": data.get("total_news_articles", 0),
-        "positive_industries_count": data.get("positive_industries_count", 0),
-        "negative_industries_count": data.get("negative_industries_count", 0),
-        "positive_industries": data.get("movers", {}).get("Positive Industries", {}),
-        "negative_industries": data.get("movers", {}).get("Negative Industries", {})
-    }
-
-
 @app.get("/api/v1/movers/gainers")
 async def get_top_gainers(
     limit: int = Query(5, ge=1, le=10, description="Number of top gaining industries")
@@ -688,6 +660,33 @@ async def get_movers_stats():
         "total_news_articles": total_news,
         "data_source": data.get("data_source")
     }
+
+@app.get("/api/v1/movers/{target_date}")
+async def get_movers_by_date(target_date: str):
+    """Get sector movers for a specific date (format: YYYY-MM-DD)"""
+    # Validate date format
+    try:
+        datetime.strptime(target_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    data = load_movers_for_date(target_date)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail=f"No movers data found for {target_date}")
+    
+    return {
+        "date": data.get("date"),
+        "timestamp": data.get("timestamp"),
+        "run_number": data.get("run_number"),
+        "data_source": data.get("data_source"),
+        "total_news_articles": data.get("total_news_articles", 0),
+        "positive_industries_count": data.get("positive_industries_count", 0),
+        "negative_industries_count": data.get("negative_industries_count", 0),
+        "positive_industries": data.get("movers", {}).get("Positive Industries", {}),
+        "negative_industries": data.get("movers", {}).get("Negative Industries", {})
+    }
+
 
 @app.get("/api/v1/movers/industry/{industry_name}")
 async def get_industry_details(industry_name: str):
