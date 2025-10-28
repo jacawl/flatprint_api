@@ -433,32 +433,43 @@ async def search_articles(
 ):
     """Search articles by title or description"""
     today = get_date_est().isoformat()
-    data = load_articles_for_date(today)
     
-    if not data:
-        raise HTTPException(status_code=404, detail="No articles available")
-    
-    # Simple case-insensitive search
-    query = q.lower()
-    results = []
-    
-    for article in data['articles']:
-        title = article.get('title', '').lower()
-        desc = article.get('description', '').lower()
+    try:
+        data = load_articles_for_date(today)
         
-        if query in title or query in desc:
-            results.append(article)
+        if not data or 'articles' not in data:
+            raise HTTPException(status_code=404, detail="No articles available")
         
-        if len(results) >= limit:
-            break
-    
-    return {
-        "query": q,
-        "results": results,
-        "total_found": len(results),
-        "date": today
-    }
-
+        # Simple case-insensitive search
+        query = q.lower()
+        results = []
+        
+        for article in data.get('articles', []):
+            try:
+                title = str(article.get('title', '')).lower()
+                desc = str(article.get('description', '')).lower()
+                
+                if query in title or query in desc:
+                    results.append(article)
+                
+                if len(results) >= limit:
+                    break
+            except Exception as e:
+                # Skip malformed articles
+                logger.warning(f"Skipping article in search: {e}")
+                continue
+        
+        return {
+            "query": q,
+            "results": results,
+            "total_found": len(results),
+            "date": today
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.get("/api/v1/stats")
 async def get_statistics():
